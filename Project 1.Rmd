@@ -1,0 +1,95 @@
+---
+title: "Data Acquisition and Management Project 1"
+author: "Chun San Yip"
+date: "2019/02/20"
+output: html_document
+---
+
+Overview:
+The project is to create an R Markdown file that generates a .CSV from a text file with chess tournament results where the information has some structure. 
+The following is the definition of game result from Google:
+
+W - win, worth 1 point
+L - lose, worth 0 points
+D - draw, worth 0.5 points
+B - full point bye, worth 1 point (given to the left-over player when there are an odd number of players in a tournament round)
+H - half point bye, worth 0.5 points (players can request these when they know they won't be able to make it to certain rounds in a tournament. They are normally only available in the first few rounds of a tournament, and tournament directors often limit a player to a small number of bye requests)
+X - win by forfeit, worth 1 point
+U - unplayed game, worth 0 points (in a round robin, this shows up for any games that haven't been played yet; in a Swiss tournament, this would show up for games following a forfeit loss. This could also show up in a situation where a player requests more byes than the tournament director permits—the director could allow the player to miss the games without withdrawing from the tournament, but the player would score no points for the missed games)
+
+F - lose by forfeit, worth 0 points (and usually results in automatic withdrawal from the rest of the tournament) - not in the data file
+
+I assume B, H, X, U don't count as game played and won't include them in Average Pre Chess Rating of Opponents. There is no opponent number for these result anyway.  
+
+Load the Tidyverse and Skimr packages.
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(skimr)
+```
+
+Read Data from the Text File in Github
+```{r message=FALSE, warning=FALSE}
+theUrl <- "https://raw.githubusercontent.com/ferrysany/CUNY607P1/master/tournamentinfo.txt"
+chess <- read_delim(file=theUrl, "|",col_names=FALSE, skip=4)
+```
+
+Tame the data
+```{r}
+#Create 2 tibbles to extra data from chess 
+chessleft <- chess[seq(1, nrow(chess), by=3),] 
+chessright <- chess[seq(2, nrow(chess), by=3),]
+
+#Combine 2 tibbles and gather the result to a tamed tibble
+chess1 <- bind_cols(chessleft, chessright) %>%
+  select(number=X1,
+         name=X2,
+         state=X12,
+         point=X3, 
+         rating=X21,
+         gR_=X4:X10,
+         -X11, 
+         -(X31:X111)) %>%
+  gather(key = "game", value = "result", gR_1:gR_7) %>%
+  separate(col = result, c("result", "opponent"), convert=TRUE)
+
+#Parse the number field 
+chess1$number <- parse_integer(chess1$number)
+
+#Extract Pre-rating for players
+chess1$rating <- parse_number(str_sub(chess1$rating, 15, 19))
+
+#Create a Pre Rating tibble for "lookup/join" and average Pre rating of opponents
+preRate <- chess1 %>%
+  select(number,rating)%>%
+  slice(1:64)
+
+head(preRate)
+```
+
+Join tibble "chess1" and "preRate" and generate the final tibble
+```{r}
+chess1 <- chess1 %>%
+  left_join(preRate, by = c("opponent" = "number"))%>%
+  group_by(name, state, point, rating.x) %>%
+  summarise(
+    oppRate = round(mean(rating.y, na.rm=TRUE), digits=0)
+  )%>%
+  arrange(desc(point), desc(rating.x))
+
+head(chess1)
+```
+
+Rename columns according to the required name and export "chess1" to csv file
+```{r}
+chess1 <- chess1 %>%
+  rename("Player’s Name"=name,
+        "Player’s State"=state,
+        "Total Number of Points"=point,
+        "Player’s Pre-Rating"=rating.x,
+        "Average Pre Chess Rating of Opponents"=oppRate)
+
+write_csv(chess1,"C:/data/chess.csv")
+
+```
+
+
